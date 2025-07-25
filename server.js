@@ -3,7 +3,10 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import admin from 'firebase-admin';
 
-import serviceAccount from './serviceAccountKey.json' assert { type: 'json' };
+// --- THIS IS THE FIX ---
+// The old 'assert' syntax has been replaced with the modern 'with' syntax
+// to ensure compatibility with the latest versions of Node.js.
+import serviceAccount from './serviceAccountKey.json' with { type: 'json' };
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
@@ -20,9 +23,8 @@ const io = new Server(httpServer, {
   },
 });
 
-// rooms will store board data, users will be managed separately for real-time updates
-const rooms = {}; 
 const socketToRoom = {};
+const rooms = {}; // Keep this for managing the live user list in memory
 
 const broadcastUsersUpdate = (roomId) => {
   if (rooms[roomId] && rooms[roomId].users) {
@@ -40,7 +42,7 @@ io.on('connection', (socket) => {
 
     if (!rooms[roomId]) {
       rooms[roomId] = {
-        users: {}, // Store users as an object { id: username }
+        users: {},
       };
     }
     rooms[roomId].users[socket.id] = username;
@@ -82,7 +84,9 @@ io.on('connection', (socket) => {
     try {
       await db.runTransaction(async (transaction) => {
         const doc = await transaction.get(boardDocRef);
-        if (!doc.exists) return;
+        if (!doc.exists) {
+          return;
+        }
         const notes = doc.data().notes || [];
         const updatedNotes = operation(notes);
         transaction.update(boardDocRef, { notes: updatedNotes });
@@ -122,6 +126,7 @@ io.on('connection', (socket) => {
     socket.to(roomId).emit('note-delete', noteId);
   });
 
+
   socket.on('cursor-move', (cursorData) => {
     const roomId = socketToRoom[socket.id];
     if (roomId) {
@@ -138,8 +143,6 @@ io.on('connection', (socket) => {
       broadcastUsersUpdate(roomId);
 
       if (Object.keys(rooms[roomId].users).length === 0) {
-        console.log(`Room ${roomId} is now empty.`);
-        // We can choose to delete room data from memory, but Firestore data persists
         delete rooms[roomId];
       }
     }
@@ -147,7 +150,7 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`);
 });
